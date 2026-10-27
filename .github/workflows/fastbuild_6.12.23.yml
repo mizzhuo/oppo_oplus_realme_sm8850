@@ -497,9 +497,6 @@ jobs:
             # 应用 NTSync 补丁
             wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/droidspaces_patch/ntsync_compat_${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
             patch -p1 -F 3 < ntsync_compat_${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
-            # 忽略 LKM 符号 CRC 校验，让 CONFIG_CGROUP_PIDS 可用
-            wget -q https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/main/OKI/6.1/01.6.1%2B_disable_crc_checks_for_lkms.patch -O crc_ignore.patch
-            patch -p1 -F 3 < crc_ignore.patch || true
             # 开启 Droidspaces 容器所需内核支持
             echo "CONFIG_PID_NS=y" >> ./arch/arm64/configs/gki_defconfig
             echo "CONFIG_IPC_NS=y" >> ./arch/arm64/configs/gki_defconfig
