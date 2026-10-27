@@ -465,6 +465,17 @@ jobs:
             fi
           fi
 
+      - name: 实验：检查 GKI cgroup kABI 补丁能否应用
+        run: |
+          cd kernel_workspace/common
+          wget -q https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/main/GKI/6.12/Kernel_6.12.patch -O /tmp/gki_abi.patch
+          echo "patch size: $(wc -c < /tmp/gki_abi.patch)"
+          echo "=== 只检查 cgroup 相关文件 ==="
+          if git apply --check --include='kernel/cgroup/*' --include='include/linux/cgroup*' /tmp/gki_abi.patch; then
+            echo "RESULT: CG_PATCH_OK"
+          else
+            echo "RESULT: CG_PATCH_FAILED"
+          fi
       - name: 启用 Droidspaces 容器支持
         run: |
           if [[ "${{ github.event.inputs.droidspaces_enable }}" != "false" ]]; then
