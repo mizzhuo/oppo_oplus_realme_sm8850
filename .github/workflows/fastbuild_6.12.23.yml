@@ -469,15 +469,29 @@ jobs:
         run: |
           cd kernel_workspace/common
           wget -q https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/main/GKI/6.12/Kernel_6.12.patch -O /tmp/gki_abi.patch
-          echo "patch size: $(wc -c < /tmp/gki_abi.patch)"
-          if git apply --include='kernel/cgroup/*' --include='include/linux/cgroup*' /tmp/gki_abi.patch; then
-            echo "RESULT: CG_APPLIED"
-          else
+          if ! git apply --include='kernel/cgroup/*' --include='include/linux/cgroup*' /tmp/gki_abi.patch; then
             echo "RESULT: CG_APPLY_FAILED"
             exit 1
           fi
-          echo "=== 残留 .rej 检查 ==="
-          find . -name '*.rej' -print | head -20 || true
+          python3 - <<'PY'
+          import re
+          p = 'include/linux/cgroup-defs.h'
+          s = open(p).read()
+          s2 = re.sub(r'#define CGROUP_SUBSYS_EXT_SLOTS\s+4', '#define CGROUP_SUBSYS_EXT_SLOTS\t1', s)
+          assert s2 != s, 'EXT_SLOTS not found'
+          open(p, 'w').write(s2)
+          p = 'kernel/cgroup/cgroup.c'
+          s = open(p).read()
+          s2 = re.sub(r'static struct css_set_ext init_css_set_ext = \{.*?\n\};',
+                      'static struct css_set_ext init_css_set_ext = {\n\t.e_cset_node = {\n\t\tLIST_HEAD_INIT(init_css_set_ext.e_cset_node[0]),\n\t},\n};',
+                      s, flags=re.S)
+          assert s2 != s, 'initializer not found'
+          open(p, 'w').write(s2)
+          print('RESULT: EXT_SLOTS_1_OK')
+          PY
+          grep -n 'CGROUP_SUBSYS_EXT_SLOTS\|CGROUP_SUBSYS_MAIN_COUNT' include/linux/cgroup-defs.h | head -5
+          echo "=== 残留 .rej ==="
+          find . -name '*.rej' -print | head
 
       - name: 启用 Droidspaces 容器支持
         run: |
@@ -517,11 +531,7 @@ jobs:
             # 开启 NTSync
             echo "CONFIG_NTSYNC=y" >> ./arch/arm64/configs/gki_defconfig
             echo "CONFIG_MACVLAN=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_CGROUP_DEVICE=y" >> ./arch/arm64/configs/gki_defconfig
             echo "CONFIG_CGROUP_PIDS=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_CGROUP_PERF=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_CGROUP_HUGETLB=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_HUGETLBFS=y" >> ./arch/arm64/configs/gki_defconfig
             if [[ "${{ github.event.inputs.droidspaces_enable }}" == "extend" ]]; then
               echo "正在启用容器环境扩展支持..."
               # 开启虚拟 HCI 设备支持
