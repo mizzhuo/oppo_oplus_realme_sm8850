@@ -477,8 +477,11 @@ jobs:
             exit 1
           fi
           echo "=== 残留 .rej 检查 ==="
-          find . -name '*.rej' -print | head -20 || true      - name: 启用 Droidspaces 容器支持
+          find . -name '*.rej' -print | head -20 || true
+
+      - name: 启用 Droidspaces 容器支持
         run: |
+
           if [[ "${{ github.event.inputs.droidspaces_enable }}" != "false" ]]; then
             echo "正在启用 Droidspaces 容器支持..."
             cd kernel_workspace/common
