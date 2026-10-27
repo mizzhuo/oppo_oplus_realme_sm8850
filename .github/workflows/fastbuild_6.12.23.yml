@@ -465,18 +465,19 @@ jobs:
             fi
           fi
 
-      - name: 实验：检查 GKI cgroup kABI 补丁能否应用
+      - name: 应用 GKI cgroup kABI 补丁
         run: |
           cd kernel_workspace/common
           wget -q https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/main/GKI/6.12/Kernel_6.12.patch -O /tmp/gki_abi.patch
           echo "patch size: $(wc -c < /tmp/gki_abi.patch)"
-          echo "=== 只检查 cgroup 相关文件 ==="
-          if git apply --check --include='kernel/cgroup/*' --include='include/linux/cgroup*' /tmp/gki_abi.patch; then
-            echo "RESULT: CG_PATCH_OK"
+          if git apply --include='kernel/cgroup/*' --include='include/linux/cgroup*' /tmp/gki_abi.patch; then
+            echo "RESULT: CG_APPLIED"
           else
-            echo "RESULT: CG_PATCH_FAILED"
+            echo "RESULT: CG_APPLY_FAILED"
+            exit 1
           fi
-      - name: 启用 Droidspaces 容器支持
+          echo "=== 残留 .rej 检查 ==="
+          find . -name '*.rej' -print | head -20 || true      - name: 启用 Droidspaces 容器支持
         run: |
           if [[ "${{ github.event.inputs.droidspaces_enable }}" != "false" ]]; then
             echo "正在启用 Droidspaces 容器支持..."
@@ -516,15 +517,10 @@ jobs:
             # 开启 NTSync
             echo "CONFIG_NTSYNC=y" >> ./arch/arm64/configs/gki_defconfig
             echo "CONFIG_MACVLAN=y" >> ./arch/arm64/configs/gki_defconfig
+            echo "CONFIG_CGROUP_DEVICE=y" >> ./arch/arm64/configs/gki_defconfig
             echo "CONFIG_CGROUP_PIDS=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_NF_TABLES=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_NF_TABLES_INET=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_NFT_CT=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_NFT_NAT=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_NFT_MASQ=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_NFT_REJECT=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_NFT_COMPAT=y" >> ./arch/arm64/configs/gki_defconfig
-            echo "CONFIG_BRIDGE_NETFILTER=y" >> ./arch/arm64/configs/gki_defconfig
+            echo "CONFIG_CGROUP_PERF=y" >> ./arch/arm64/configs/gki_defconfig
+            echo "CONFIG_CGROUP_HUGETLB=y" >> ./arch/arm64/configs/gki_defconfig
             if [[ "${{ github.event.inputs.droidspaces_enable }}" == "extend" ]]; then
               echo "正在启用容器环境扩展支持..."
               # 开启虚拟 HCI 设备支持
