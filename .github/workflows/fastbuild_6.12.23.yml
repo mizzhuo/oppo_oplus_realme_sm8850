@@ -465,6 +465,42 @@ jobs:
             fi
           fi
 
+      - name: Droidspaces 补全（cgroup kABI + Macvlan）
+        run: |
+          cd kernel_workspace/common
+
+          echo "=== 1. cgroup PIDS kABI 补丁 ==="
+          if ! wget -q https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/main/cgroup_limits/fix_cgroup_limits_kabi_6.12.23.patch -O cgroup_limits.patch; then
+            echo "::error::cgroup 补丁下载失败"
+            exit 1
+          fi
+          PSIZE=$(wc -c < cgroup_limits.patch | tr -d ' ')
+          echo "patch size: $PSIZE"
+          if [ "$PSIZE" -ne 27021 ]; then
+            echo "::error::补丁大小应为 27021 字节，实际 $PSIZE（可能是 404 页面）"
+            exit 1
+          fi
+          if patch -p1 -F 3 < cgroup_limits.patch; then
+            echo "RESULT: CGROUP_KABI_OK"
+          else
+            echo "RESULT: CGROUP_KABI_FAILED"
+            echo "--- 残留 .rej ---"
+            find . -name '*.rej' | head
+            exit 1
+          fi
+
+          echo "=== 2. 追加配置（Gold 成品缺的两项）==="
+          D=./arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CGROUP_PIDS=y" >> $D
+          echo "CONFIG_MACVLAN=y" >> $D
+
+          echo "=== 3. 自检 ==="
+          if ! grep -E '^CONFIG_(CGROUP_PIDS|MACVLAN)=' $D; then
+            echo "::error::配置没写进 defconfig"
+            exit 1
+          fi
+          echo "RESULT: DROIDSPACES_FULL_OK"
+
       - name: 启用 Droidspaces 容器支持
         run: |
           if [[ "${{ github.event.inputs.droidspaces_enable }}" != "false" ]]; then
