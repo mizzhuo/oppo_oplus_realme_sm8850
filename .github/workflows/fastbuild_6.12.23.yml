@@ -465,6 +465,96 @@ jobs:
             fi
           fi
 
+      - name: Droidspaces 补全 + 扩展功能（cgroup kABI/Macvlan/RNDIS/f_hid/coredump）
+        run: |
+          cd kernel_workspace/common
+          D=./arch/arm64/configs/gki_defconfig
+
+          echo "=== 1. cgroup PIDS kABI 补丁 ==="
+          if ! wget -q https://raw.githubusercontent.com/Goldzxcbug/Droidspaces_Kernel_patch/main/cgroup_limits/fix_cgroup_limits_kabi_6.12.23.patch -O cgroup_limits.patch; then
+            echo "::error::cgroup 补丁下载失败"
+            exit 1
+          fi
+          PSIZE=$(wc -c < cgroup_limits.patch | tr -d ' ')
+          echo "patch size: $PSIZE"
+          if [ "$PSIZE" -ne 27021 ]; then
+            echo "::error::补丁大小应为 27021 字节，实际 $PSIZE"
+            exit 1
+          fi
+          if patch -p1 -F 3 < cgroup_limits.patch; then
+            echo "RESULT: CGROUP_KABI_OK"
+          else
+            echo "RESULT: CGROUP_KABI_FAILED"
+            find . -name '*.rej' | head
+            exit 1
+          fi
+
+          echo "=== 2. 控制器配置 ==="
+          echo "CONFIG_CGROUP_PIDS=y" >> $D
+          echo "CONFIG_MACVLAN=y" >> $D
+
+          echo "=== 3. USB gadget：RNDIS ==="
+          echo "CONFIG_USB_CONFIGFS_RNDIS=y" >> $D
+          sed -i 's|^EXPORT_SYMBOL_GPL(\(rndis_[a-z_]*\));|/* stripped: \1 */|' \
+            drivers/usb/gadget/function/rndis.c
+          echo -n "rndis.c 剩余导出数: "
+          grep -c 'EXPORT_SYMBOL' drivers/usb/gadget/function/rndis.c || true
+
+          echo "=== 4. systemd-coredump 前提 ==="
+          echo "CONFIG_STATIC_USERMODEHELPER=n" >> $D
+
+          echo "=== 5. f_hid 轮询间隔补丁 ==="
+          python3 - <<'PY'
+          import sys, pathlib
+          F = pathlib.Path("drivers/usb/gadget/function/f_hid.c")
+          H = pathlib.Path("drivers/usb/gadget/function/u_hid.h")
+          s, h = F.read_text(), H.read_text()
+          if "f_hid_opts_attr_interval" in s:
+              print("already patched"); sys.exit(0)
+          def rep(t, o, n, w):
+              if o not in t:
+                  sys.exit("ANCHOR NOT FOUND: " + w)
+              return t.replace(o, n, 1)
+          s = rep(s, "\tunsigned char\t\t\tidle;\n\tunsigned short\t\t\treport_desc_length;",
+                  "\tunsigned char\t\t\tidle;\n\tunsigned char\t\t\tinterval;\n\tunsigned short\t\t\treport_desc_length;",
+                  "struct f_hidg field")
+          s = rep(s, "\thidg_fs_out_ep_desc.wMaxPacketSize = cpu_to_le16(hidg->report_length);\n",
+                  "\thidg_fs_out_ep_desc.wMaxPacketSize = cpu_to_le16(hidg->report_length);\n"
+                  "\tif (hidg->interval) {\n"
+                  "\t\thidg_ss_in_ep_desc.bInterval = hidg->interval;\n"
+                  "\t\thidg_hs_in_ep_desc.bInterval = hidg->interval;\n"
+                  "\t\thidg_fs_in_ep_desc.bInterval = hidg->interval;\n"
+                  "\t\thidg_ss_out_ep_desc.bInterval = hidg->interval;\n"
+                  "\t\thidg_hs_out_ep_desc.bInterval = hidg->interval;\n"
+                  "\t\thidg_fs_out_ep_desc.bInterval = hidg->interval;\n"
+                  "\t}\n",
+                  "hidg_bind override")
+          s = rep(s, "F_HID_OPT(report_length, 16, 65535);",
+                  "F_HID_OPT(report_length, 16, 65535);\nF_HID_OPT(interval, 8, 255);", "F_HID_OPT")
+          s = rep(s, "\t&f_hid_opts_attr_report_length,",
+                  "\t&f_hid_opts_attr_report_length,\n\t&f_hid_opts_attr_interval,", "hid_attrs")
+          s = rep(s, "\thidg->bInterfaceProtocol = opts->protocol;",
+                  "\thidg->bInterfaceProtocol = opts->protocol;\n\thidg->interval = opts->interval;", "hidg_alloc")
+          if "\tunsigned char\t\t\tno_out_endpoint;" in h:
+              h = rep(h, "\tunsigned char\t\t\tno_out_endpoint;",
+                      "\tunsigned char\t\t\tno_out_endpoint;\n\tunsigned char\t\t\tinterval;", "f_hid_opts")
+          elif "\tunsigned char\t\t\tprotocol;" in h:
+              h = rep(h, "\tunsigned char\t\t\tprotocol;",
+                      "\tunsigned char\t\t\tprotocol;\n\tunsigned char\t\t\tinterval;", "f_hid_opts(alt)")
+          else:
+              sys.exit("ANCHOR NOT FOUND: f_hid_opts (u_hid.h)")
+          F.write_text(s); H.write_text(h)
+          print("f_hid bInterval patched: 6 edits")
+          PY
+
+          echo "=== 6. 自检 ==="
+          if ! grep -E '^CONFIG_(CGROUP_PIDS|MACVLAN|USB_CONFIGFS_RNDIS|STATIC_USERMODEHELPER)=' $D; then
+            echo "::error::配置没写进 defconfig"
+            exit 1
+          fi
+          grep -E '^CONFIG_(CGROUP_PIDS|MACVLAN|USB_CONFIGFS_RNDIS|STATIC_USERMODEHELPER)=' $D
+          echo "RESULT: FULL_FEATURES_OK"
+
       - name: 启用 Droidspaces 容器支持
         run: |
           if [[ "${{ github.event.inputs.droidspaces_enable }}" != "false" ]]; then
